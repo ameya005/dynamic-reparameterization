@@ -2,7 +2,7 @@
 # https://github.com/damnever/pigar
 
 # variable_sized_nws.py: 21
-PyYAML == 3.13
+PyYAML == 5.1
 
 # model.py: 1
 # parameterized_tensors.py: 5
