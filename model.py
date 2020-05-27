@@ -413,18 +413,23 @@ defaultcfg = {
 }
 
 
-class VGG(nn.Module):
-    def __init__(self, num_classes=10, depth=19, init_weights=True, cfg=None, affine=True, batchnorm=True):
+class VGG(DynamicNetworkBase):
+    def __init__(self, num_classes=10, depth=19, init_weights=True, cfg=None, affine=True, batchnorm=True, initial_sparsity_conv=0.95, initial_sparsity_fc=0.95, sub_kernel_granularity=4, sparse=True):
         super(VGG, self).__init__()
+        self.initial_sparsity_conv = initial_sparsity_conv
+        self.initial_sparsity_fc = initial_sparsity_fc
+        self.sparse = sparse
+        self.sub_kernel_granularity = sub_kernel_granularity
         if cfg is None:
             cfg = defaultcfg[depth]
         self._AFFINE = affine
         self.feature = self.make_layers(cfg, batchnorm)
         self.num_classes = num_classes
         
-        self.classifier = nn.Linear(cfg[-1], num_classes)
-        if init_weights:
-            self.apply(weights_init)
+        #self.classifier = nn.Linear(cfg[-1], num_classes)
+        self.classifier = DynamicLinear(cfg[-1], num_classes, initial_sparsity = self.initial_sparsity_fc,sparse = self.sparse)
+        #if init_weights:
+        #    self.apply(weights_init)
         # if pretrained:
         #     model.load_state_dict(model_zoo.load_url(model_urls['vgg11_bn']))
 
@@ -435,7 +440,8 @@ class VGG(nn.Module):
             if v == 'M':
                 layers += [nn.MaxPool2d(kernel_size=2, stride=2)]
             else:
-                conv2d = nn.Conv2d(in_channels, v, kernel_size=3, padding=1, bias=False)
+                #conv2d = nn.Conv2d(in_channels, v, kernel_size=3, padding=1, bias=False)
+                conv2d = DynamicConv2d(in_channels, v, kernel_size=3, padding=1, bias=False, initial_sparsity = self.initial_sparsity_conv,sparse = self.sparse)
                 if batch_norm:
                     layers += [conv2d, nn.BatchNorm2d(v, affine=self._AFFINE), nn.ReLU(inplace=True)]
                 else:
@@ -451,8 +457,8 @@ class VGG(nn.Module):
             x = nn.AvgPool2d(2)(x)
         x = x.view(x.size(0), -1)
         x = self.classifier(x)
-        y = F.log_softmax(x, dim=1)
-        return y
+        #y = F.log_softmax(x, dim=1)
+        return x
 
     def _initialize_weights(self):
         for m in self.modules():
@@ -469,6 +475,6 @@ class VGG(nn.Module):
                 m.weight.data.normal_(0, 0.01)
                 m.bias.data.zero_()
 
-def cifar10_vgg19(num_classes):
+def cifar10_vgg19(num_classes, initial_sparsity_conv=0.95, initial_sparsity_fc=0.95, sub_kernel_granularity=4, sparse=True):
     """VGG 19-layer model (configuration "E")"""
-    return VGG(num_classes)
+    return VGG(num_classes, initial_sparsity_conv=initial_sparsity_conv, initial_sparsity_fc=initial_sparsity_fc, sub_kernel_granularity=sub_kernel_granularity, sparse=sparse)

@@ -49,7 +49,7 @@ parser.add_argument('--epochs', default=100, type=int,
 parser.add_argument('--start-epoch', default=0, type=int,
                     help='manual epoch number (useful on restarts)')
 
-parser.add_argument('--model', type=str, choices = ['mnist_mlp','cifar10_WideResNet','imagenet_resnet50', 'cifar10_resnet32', 'cifar10_vgg19'],default='mnist_mlp',  help='network name (default: mnist_mlp)')
+parser.add_argument('--model', type=str, choices = ['mnist_mlp','cifar10_WideResNet','imagenet_resnet50', 'cifar10_resnet32', 'cifar10_vgg19', 'cifar100_resnet32', 'cifar100_vgg19'],default='mnist_mlp',  help='network name (default: mnist_mlp)')
 
 parser.add_argument('-b', '--batch-size', default=100, type=int,
                     help='mini-batch size (default: 100)')
@@ -239,7 +239,7 @@ def main():
                                transforms.Normalize((0.1307,), (0.3081,))
                            ])),batch_size=args.batch_size, shuffle=False,**kwargs)
 
-    elif dataset == 'cifar10':
+    elif dataset == 'cifar10' or dataset == 'cifar100':
         normalize = transforms.Normalize(mean=[x/255.0 for x in [125.3, 123.0, 113.9]],
                                    std=[x/255.0 for x in [63.0, 62.1, 66.7]])
 
@@ -266,9 +266,19 @@ def main():
             transforms.ToTensor(),
             normalize
             ])
-
-        full_dataset = datasets.CIFAR10('./data', train=True, download=True,
-                             transform=transform_train)
+        if dataset == 'cifar10':
+            full_dataset = datasets.CIFAR10('./data', train=True, download=True,
+                                 transform=transform_train)
+            test_loader = torch.utils.data.DataLoader(
+                datasets.CIFAR10('./data', train=False, transform=transform_test),
+                batch_size=args.batch_size, shuffle=True, **kwargs)
+        
+        elif dataset == 'cifar100':
+            full_dataset = datasets.CIFAR100('./data', train=True, download=True, 
+                                 transform=transform_train)
+            test_loader = torch.utils.data.DataLoader(
+                datasets.CIFAR100('./data', train=False, transform=transform_test),
+                batch_size=args.batch_size, shuffle=True, **kwargs)
 
         if not(args.validate_set):
             train_loader = torch.utils.data.DataLoader(full_dataset,
@@ -281,10 +291,6 @@ def main():
                 batch_size=args.batch_size, shuffle=True, **kwargs)
             val_loader = torch.utils.data.DataLoader(val_dataset,
                 batch_size=args.batch_size, shuffle=True, **kwargs)
-
-        test_loader = torch.utils.data.DataLoader(
-            datasets.CIFAR10('./data', train=False, transform=transform_test),
-            batch_size=args.batch_size, shuffle=True, **kwargs)
 
     elif dataset == 'imagenet':
         if not(args.data):
@@ -357,9 +363,17 @@ def main():
     elif args.model == 'cifar10_resnet32':
         num_classes = 10 # hardcoded temporarily
         model = cifar10_resnet32(num_classes=num_classes, widen_factor=args.widen_factor, initial_sparsity_conv=args.initial_sparsity_conv, initial_sparsity_fc=args.initial_sparsity_fc, sub_kernel_granularity=args.sub_kernel_granularity, sparse=not(args.tied))
+    elif args.model == 'cifar100_resnet32':
+        num_classes = 100 # hardcoded temporarily
+        model = cifar10_resnet32(num_classes=num_classes, widen_factor=args.widen_factor, initial_sparsity_conv=args.initial_sparsity_conv, initial_sparsity_fc=args.initial_sparsity_fc, sub_kernel_granularity=args.sub_kernel_granularity, sparse=not(args.tied))
     elif args.model == 'cifar10_vgg19':
         num_classes = 10
-        model = cifar10_vgg19(num_classes=num_classes)
+        model = cifar10_vgg19(num_classes=num_classes, initial_sparsity_conv = args.initial_sparsity_conv,initial_sparsity_fc = args.initial_sparsity_fc,
+                                   sub_kernel_granularity = args.sub_kernel_granularity,sparse = not(args.tied))
+    elif args.model == 'cifar100_vgg19':
+        num_classes = 100
+        model = cifar10_vgg19(num_classes=num_classes, initial_sparsity_conv = args.initial_sparsity_conv,initial_sparsity_fc = args.initial_sparsity_fc,
+                                   sub_kernel_granularity = args.sub_kernel_granularity,sparse = not(args.tied))
     else:
         raise RuntimeError('unrecognized model name ' + repr(args.model))
 
