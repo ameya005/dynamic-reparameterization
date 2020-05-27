@@ -39,7 +39,7 @@ import collections
 
 from torch.autograd import Variable
 
-from model import cifar10_WideResNet,mnist_mlp,imagenet_resnet50
+from model import cifar10_WideResNet,mnist_mlp,imagenet_resnet50, cifar10_resnet32, cifar10_vgg19
 from parameterized_tensors import SparseTensor,TiedTensor
 
 
@@ -49,7 +49,7 @@ parser.add_argument('--epochs', default=100, type=int,
 parser.add_argument('--start-epoch', default=0, type=int,
                     help='manual epoch number (useful on restarts)')
 
-parser.add_argument('--model', type=str, choices = ['mnist_mlp','cifar10_WideResNet','imagenet_resnet50'],default='mnist_mlp',  help='network name (default: mnist_mlp)')
+parser.add_argument('--model', type=str, choices = ['mnist_mlp','cifar10_WideResNet','imagenet_resnet50', 'cifar10_resnet32', 'cifar10_vgg19'],default='mnist_mlp',  help='network name (default: mnist_mlp)')
 
 parser.add_argument('-b', '--batch-size', default=100, type=int,
                     help='mini-batch size (default: 100)')
@@ -354,7 +354,12 @@ def main():
     elif args.model == 'imagenet_resnet50':
         model = imagenet_resnet50(initial_sparsity_conv = args.initial_sparsity_conv,initial_sparsity_fc = args.initial_sparsity_fc,vanilla_downsample = not(args.sparse_resnet_downsample),
                                    sub_kernel_granularity = args.sub_kernel_granularity,sparse = not(args.tied),widen_factor = args.widen_factor)
-        
+    elif args.model == 'cifar10_resnet32':
+        num_classes = 10 # hardcoded temporarily
+        model = cifar10_resnet32(num_classes=num_classes, widen_factor=args.widen_factor, initial_sparsity_conv=args.initial_sparsity_conv, initial_sparsity_fc=args.initial_sparsity_fc, sub_kernel_granularity=args.sub_kernel_granularity, sparse=not(args.tied))
+    elif args.model == 'cifar10_vgg19':
+        num_classes = 10
+        model = cifar10_vgg19(num_classes=num_classes)
     else:
         raise RuntimeError('unrecognized model name ' + repr(args.model))
 
@@ -637,18 +642,20 @@ def train(train_loader, model, criterion, optimizer, epoch,current_iteration,rew
               n_pruned_indices[i] = pruned_indices.size(0)
 
             if args.rewire_scaling:
-                sparse_tensor_nonzeros = np.array([x.mask.sum() for x in all_sparse_tensors])            
+                sparse_tensor_nonzeros = np.array([x.mask.sum().cpu().detach().numpy() for x in all_sparse_tensors])            
 
                 pruned_tensor_fraction = n_pruned_indices / sparse_tensor_nonzeros
-
+                #pruned_tensor_fraction = np.array([i.cpu().detach().numpy() for i in pruned_tensor_fraction if type(i)!=np.ndarray])
+                #if pruned_tensor_fraction[0]
                 #one_percent_adjustment = ((pruned_tensor_fraction < pruned_tensor_fraction.mean()) * 2 - 1) / 100.0
                 #adjusted_pruned_tensor_fraction = pruned_tensor_fraction + one_percent_adjustment
-
+                #print(pruned_tensor_fraction)
                 adjusted_pruned_tensor_fraction = np.ones_like(pruned_tensor_fraction) * pruned_tensor_fraction.mean()
                 adjusted_pruned_tensor_fraction = np.clip(adjusted_pruned_tensor_fraction,0.0,1.0)
 
 
                 n_grown = 0
+                #print(sparse_tensor_nonzeros)
                 grow_backs = adjusted_pruned_tensor_fraction * sparse_tensor_nonzeros
                 grow_backs /= grow_backs.sum()
 #                print('adjusted fraction ',adjusted_pruned_tensor_fraction)                

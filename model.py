@@ -103,6 +103,7 @@ class mnist_mlp(DynamicNetworkBase):
 #########Definition of wide resnets
 
 class BasicBlock(nn.Module):
+    expansion=1
     def __init__(self, in_planes, out_planes, stride, dropRate=0.0,widen_factor = 10,initial_sparsity = 0.5,sub_kernel_granularity = False,sparse = True):
         super(BasicBlock, self).__init__()
         self.bn1 = nn.BatchNorm2d(in_planes)
@@ -353,3 +354,121 @@ def imagenet_resnet50(widen_factor = 1,vanilla_conv1 = False,vanilla_conv3 = Fal
                    vanilla_conv1 = vanilla_conv1,vanilla_conv3 = vanilla_conv3,vanilla_downsample = vanilla_downsample, initial_sparsity_conv = initial_sparsity_conv,
                    initial_sparsity_fc = initial_sparsity_fc,sub_kernel_granularity = sub_kernel_granularity,sparse = sparse,**kwargs)
     return model
+
+
+class ResNet32(DynamicNetworkBase):
+    def __init__(self, block, num_blocks, num_classes=10, widen_factor=1, initial_sparsity_conv=0.95, initial_sparsity_fc=0.95, sub_kernel_granularity=4, sparse=True):
+        super(ResNet32, self).__init__()
+        _outputs = [32, 64, 128]
+        self.widen_factor = widen_factor
+        self.initial_sparsity_conv = initial_sparsity_conv
+        self.initial_sparsity_fc = initial_sparsity_fc
+        self.sub_kernel_granularity = sub_kernel_granularity
+        self.sparse = sparse
+        self.in_planes = _outputs[0]
+        self.conv1 = nn.Conv2d(3, _outputs[0], kernel_size=3, stride=1, padding=1, bias=False)
+        self.bn1 = nn.BatchNorm2d(_outputs[0])
+        self.layer1 = self._make_layer(block, _outputs[0], num_blocks[0], stride=1)
+        self.layer2 = self._make_layer(block, _outputs[1], num_blocks[1], stride=2)
+        self.layer3 = self._make_layer(block, _outputs[2], num_blocks[2], stride=2)
+        #self.linear = nn.Linear(_outputs[2], num_classes)
+        self.linear = DynamicLinear(_outputs[2], num_classes,initial_sparsity = self.initial_sparsity_fc,sparse = self.sparse)
+        #self.apply(_weights_init)
+
+    def _make_layer(self, block, planes, num_blocks, stride):
+        strides = [stride] + [1]*(num_blocks-1)
+        layers = []
+        for stride in strides:
+            layers.append(block(self.in_planes, planes, stride, 0.0, self.widen_factor, self.initial_sparsity_conv, self.sub_kernel_granularity, self.sparse))
+            self.in_planes = planes * block.expansion
+
+        return nn.Sequential(*layers)
+
+    def forward(self, x):
+        out = F.relu(self.bn1(self.conv1(x)))
+        out = self.layer1(out)
+        out = self.layer2(out)
+        out = self.layer3(out)
+        out = F.avg_pool2d(out, out.size()[3])
+        out = out.view(out.size(0), -1)
+        out = self.linear(out)
+        #out = F.log_softmax(out, dim=1)
+        return out
+
+# def resnet20():
+#     return ResNet(BasicBlock, [3, 3, 3])
+
+def cifar10_resnet32(num_classes, widen_factor=1, initial_sparsity_conv=0.95, initial_sparsity_fc=0.95, sub_kernel_granularity=4, sparse=True):
+    return ResNet32(BasicBlock, [5, 5, 5], num_classes=num_classes, widen_factor=widen_factor, initial_sparsity_conv=initial_sparsity_conv, initial_sparsity_fc = initial_sparsity_fc, sub_kernel_granularity=sub_kernel_granularity, sparse=sparse)
+    
+# def resnet50(num_classes):
+#     return ResNet(BasicBlock, [8, 8, 8], num_classes=num_classes)
+
+
+defaultcfg = {
+    11: [64, 'M', 128, 'M', 256, 256, 'M', 512, 512, 'M', 512, 512],
+    13: [64, 64, 'M', 128, 128, 'M', 256, 256, 'M', 512, 512, 'M', 512, 512],
+    16: [64, 64, 'M', 128, 128, 'M', 256, 256, 256, 'M', 512, 512, 512, 'M', 512, 512, 512],
+    19: [64, 64, 'M', 128, 128, 'M', 256, 256, 256, 256, 'M', 512, 512, 512, 512, 'M', 512, 512, 512, 512],
+}
+
+
+class VGG(nn.Module):
+    def __init__(self, num_classes=10, depth=19, init_weights=True, cfg=None, affine=True, batchnorm=True):
+        super(VGG, self).__init__()
+        if cfg is None:
+            cfg = defaultcfg[depth]
+        self._AFFINE = affine
+        self.feature = self.make_layers(cfg, batchnorm)
+        self.num_classes = num_classes
+        
+        self.classifier = nn.Linear(cfg[-1], num_classes)
+        if init_weights:
+            self.apply(weights_init)
+        # if pretrained:
+        #     model.load_state_dict(model_zoo.load_url(model_urls['vgg11_bn']))
+
+    def make_layers(self, cfg, batch_norm=False):
+        layers = []
+        in_channels = 3
+        for v in cfg:
+            if v == 'M':
+                layers += [nn.MaxPool2d(kernel_size=2, stride=2)]
+            else:
+                conv2d = nn.Conv2d(in_channels, v, kernel_size=3, padding=1, bias=False)
+                if batch_norm:
+                    layers += [conv2d, nn.BatchNorm2d(v, affine=self._AFFINE), nn.ReLU(inplace=True)]
+                else:
+                    layers += [conv2d, nn.ReLU(inplace=True)]
+                in_channels = v
+        return nn.Sequential(*layers)
+
+    def forward(self, x):
+        x = self.feature(x)
+        if self.num_classes == 200:
+            x = nn.AvgPool2d(4)(x)
+        else:
+            x = nn.AvgPool2d(2)(x)
+        x = x.view(x.size(0), -1)
+        x = self.classifier(x)
+        y = F.log_softmax(x, dim=1)
+        return y
+
+    def _initialize_weights(self):
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                n = m.kernel_size[0] * m.kernel_size[1] * m.in_channels
+                m.weight.data.normal_(0, math.sqrt(2. / n))
+                if m.bias is not None:
+                    m.bias.data.zero_()
+            elif isinstance(m, nn.BatchNorm2d):
+                if m.weight is not None:
+                    m.weight.data.fill_(1.0)
+                    m.bias.data.zero_()
+            elif isinstance(m, nn.Linear):
+                m.weight.data.normal_(0, 0.01)
+                m.bias.data.zero_()
+
+def cifar10_vgg19(num_classes):
+    """VGG 19-layer model (configuration "E")"""
+    return VGG(num_classes)
