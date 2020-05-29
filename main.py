@@ -292,7 +292,7 @@ def main():
             val_loader = torch.utils.data.DataLoader(val_dataset,
                 batch_size=args.batch_size, shuffle=True, **kwargs)
 
-    elif dataset == 'imagenet':
+    elif dataset == 'imagenet' or dataset == 'tiny-imagenet':
         if not(args.data):
               raise Exception('need to specify imagenet dataset location using the --data argument')
         traindir = os.path.join(args.data, 'train')
